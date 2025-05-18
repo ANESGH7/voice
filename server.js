@@ -1,34 +1,45 @@
-import { WebSocketServer } from 'ws';
+import { WebSocketServer } from "ws";
 
-const port = process.env.PORT || 8080;
-const wss = new WebSocketServer({ port });
+const PORT = process.env.PORT || 10000;
+const wss = new WebSocketServer({ port: PORT });
+console.log("Server running on port", PORT);
 
-console.log('Server running on port', port);
+const rooms = {};
 
-const clients = new Map(); // clientId => ws
+wss.on("connection", (ws) => {
+  ws.on("message", (msg) => {
+    const data = JSON.parse(msg);
+    const { type, room } = data;
 
-function broadcastExcept(senderId, data) {
-  for (const [id, ws] of clients.entries()) {
-    if (id !== senderId && ws.readyState === ws.OPEN) {
-      ws.send(data);
+    if (type === "join") {
+      ws.room = room;
+      rooms[room] = rooms[room] || [];
+      rooms[room].push(ws);
+
+      // Send 'joined' event and tell if user should initiate call
+      ws.send(JSON.stringify({ type: "joined", initiator: rooms[room].length === 2 }));
+
+      // If more than 2 in room, kick extra users
+      if (rooms[room].length > 2) {
+        ws.send(JSON.stringify({ type: "full" }));
+      }
     }
-  }
-}
 
-wss.on('connection', (ws) => {
-  const id = crypto.randomUUID();
-  clients.set(id, ws);
-  ws.send(JSON.stringify({ type: 'id', id }));
-
-  console.log(`Client connected: ${id}`);
-
-  ws.on('message', (message) => {
-    // Forward signaling messages to the other peer (if any)
-    broadcastExcept(id, message);
+    // Relay messages to the other peer in the room
+    if (["offer", "answer", "candidate"].includes(type)) {
+      const peers = rooms[room] || [];
+      for (let client of peers) {
+        if (client !== ws && client.readyState === 1) {
+          client.send(JSON.stringify(data));
+        }
+      }
+    }
   });
 
-  ws.on('close', () => {
-    clients.delete(id);
-    console.log(`Client disconnected: ${id}`);
+  ws.on("close", () => {
+    const room = ws.room;
+    if (room && rooms[room]) {
+      rooms[room] = rooms[room].filter((client) => client !== ws);
+    }
   });
 });
