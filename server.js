@@ -1,33 +1,15 @@
-// server.js
-const http = require('http');
-const fs = require('fs');
-const path = require('path');
 const WebSocket = require('ws');
+const { v4: uuid } = require('uuid');
 
-const clients = new Map(); // socket -> { id, room }
-const rooms = new Map();   // roomName -> Set of sockets
+const wss = new WebSocket.Server({ port: process.env.PORT || 3000 });
 
-// Serve static files
-const server = http.createServer((req, res) => {
-  let filePath = path.join(__dirname, 'public', req.url === '/' ? 'index.html' : req.url);
-  fs.readFile(filePath, (err, content) => {
-    if (err) {
-      res.writeHead(404);
-      res.end("Not Found");
-    } else {
-      res.writeHead(200);
-      res.end(content);
-    }
-  });
-});
+const rooms = new Map();
 
-const wss = new WebSocket.Server({ server });
+wss.on('connection', ws => {
+  ws.id = uuid();
+  ws.room = null;
 
-wss.on('connection', (ws) => {
-  const id = Math.random().toString(36).substr(2, 9);
-  clients.set(ws, { id });
-
-  ws.on('message', (msg) => {
+  ws.on('message', msg => {
     let data;
     try {
       data = JSON.parse(msg);
@@ -35,59 +17,63 @@ wss.on('connection', (ws) => {
       return;
     }
 
-    const client = clients.get(ws);
-
     if (data.type === 'join') {
-      const room = data.room;
-      client.room = room;
-      rooms.set(room, rooms.get(room) || new Set());
-      rooms.get(room).add(ws);
+      ws.room = data.room;
+      if (!rooms.has(data.room)) rooms.set(data.room, new Set());
+      rooms.get(data.room).add(ws);
 
-      // Send confirmation and existing users
-      ws.send(JSON.stringify({ type: 'joined', id }));
-      broadcastUserList(room);
+      ws.send(JSON.stringify({ type: 'joined', id: ws.id }));
+      broadcastUserList(data.room);
     }
 
     if (data.type === 'call-start') {
-      broadcastToRoom(client.room, {
+      broadcast(ws.room, {
         type: 'call-start',
+        from: ws.id
       }, ws);
     }
 
-    if (['offer', 'answer', 'ice'].includes(data.type)) {
-      const target = Array.from(rooms.get(client.room) || []).find(s => clients.get(s)?.id === data.to);
+    if (data.type === 'offer' || data.type === 'answer' || data.type === 'ice') {
+      const target = findClientById(ws.room, data.to);
       if (target) {
-        target.send(JSON.stringify({ ...data, from: client.id }));
+        target.send(JSON.stringify({
+          type: data.type,
+          from: ws.id,
+          ...(data.offer && { offer: data.offer }),
+          ...(data.answer && { answer: data.answer }),
+          ...(data.candidate && { candidate: data.candidate }),
+        }));
       }
     }
   });
 
   ws.on('close', () => {
-    const client = clients.get(ws);
-    if (client?.room && rooms.has(client.room)) {
-      rooms.get(client.room).delete(ws);
-      if (rooms.get(client.room).size === 0) {
-        rooms.delete(client.room);
-      } else {
-        broadcastUserList(client.room);
+    if (ws.room && rooms.has(ws.room)) {
+      rooms.get(ws.room).delete(ws);
+      if (rooms.get(ws.room).size === 0) rooms.delete(ws.room);
+      else broadcastUserList(ws.room);
+    }
+  });
+
+  function broadcastUserList(room) {
+    const users = [...(rooms.get(room) || [])].map(w => w.id);
+    broadcast(room, { type: 'user-list', users });
+  }
+
+  function broadcast(room, msg, exclude) {
+    for (const client of rooms.get(room) || []) {
+      if (client !== exclude && client.readyState === WebSocket.OPEN) {
+        client.send(JSON.stringify(msg));
       }
     }
-    clients.delete(ws);
-  });
+  }
+
+  function findClientById(room, id) {
+    for (const client of rooms.get(room) || []) {
+      if (client.id === id) return client;
+    }
+    return null;
+  }
 });
 
-function broadcastToRoom(room, msg, excludeSocket = null) {
-  (rooms.get(room) || new Set()).forEach(client => {
-    if (client !== excludeSocket) {
-      client.send(JSON.stringify(msg));
-    }
-  });
-}
-
-function broadcastUserList(room) {
-  const users = Array.from(rooms.get(room) || []).map(s => clients.get(s)?.id);
-  broadcastToRoom(room, { type: 'user-list', users });
-}
-
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`Server on http://localhost:${PORT}`));
+console.log('WebSocket server running');
