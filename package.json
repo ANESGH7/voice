@@ -4,6 +4,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
+     "type": "module",
   },
   "dependencies": {
     "uuid": "^9.0.0",
