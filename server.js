@@ -1,12 +1,14 @@
-const WebSocket = require('ws');
-const server = new WebSocket.Server({ port: 8080 });
+// server.js
+import { WebSocketServer } from 'ws';
 
-server.on('connection', (socket) => {
-  socket.on('message', (data, isBinary) => {
+const wss = new WebSocketServer({ port: 8080 });
+
+wss.on('connection', (ws) => {
+  ws.on('message', (data, isBinary) => {
     if (isBinary) {
-      socket.send(data, { binary: true }); // Echo audio back
+      ws.send(data, { binary: true }); // Echo binary audio
     }
   });
 });
 
-console.log('WebSocket server running on ws://localhost:8080');
+console.log('✅ WebSocket server running on ws://localhost:8080');
