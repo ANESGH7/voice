@@ -1,23 +1,12 @@
-import WebSocket, { WebSocketServer } from 'ws';
+const WebSocket = require('ws');
+const server = new WebSocket.Server({ port: 8080 });
 
-const port = process.env.PORT || 10000;
-const wss = new WebSocketServer({ port });
-
-console.log(`Server running on port ${port}`);
-
-wss.on('connection', (ws) => {
-  console.log('Client connected');
-
-  ws.on('message', (data) => {
-    // Broadcast incoming data to all other clients except sender
-    wss.clients.forEach(client => {
-      if (client !== ws && client.readyState === WebSocket.OPEN) {
-        client.send(data);
-      }
-    });
-  });
-
-  ws.on('close', () => {
-    console.log('Client disconnected');
+server.on('connection', (socket) => {
+  socket.on('message', (data, isBinary) => {
+    if (isBinary) {
+      socket.send(data, { binary: true }); // Echo audio back
+    }
   });
 });
+
+console.log('WebSocket server running on ws://localhost:8080');
