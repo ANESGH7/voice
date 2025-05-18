@@ -56,15 +56,21 @@ wss.on('connection', (ws) => {
     }
   });
 
-  ws.on('close', () => {
-    if (ws.room && rooms.has(ws.room)) {
-      rooms.get(ws.room).delete(ws);
-      broadcastToRoom(ws.room, {
-        type: 'user_left',
-        username: ws.username,
-      });
+
+ws.on('close', () => {
+  if (ws.room && rooms.has(ws.room)) {
+    const roomSet = rooms.get(ws.room);
+    roomSet.delete(ws);
+    broadcastToRoom(ws.room, {
+      type: 'user_left',
+      username: ws.username,
+    });
+    if (roomSet.size === 0) {
+      rooms.delete(ws.room);
     }
-  });
+  }
+});
+
 });
 
 function broadcastToRoom(room, message, except = null) {
