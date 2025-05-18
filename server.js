@@ -1,9 +1,13 @@
 // server.js
 const http = require('http');
-const WebSocket = require('ws');
 const fs = require('fs');
 const path = require('path');
+const WebSocket = require('ws');
 
+const clients = new Map(); // socket -> { id, room }
+const rooms = new Map();   // roomName -> Set of sockets
+
+// Serve static files
 const server = http.createServer((req, res) => {
   let filePath = path.join(__dirname, 'public', req.url === '/' ? 'index.html' : req.url);
   fs.readFile(filePath, (err, content) => {
@@ -18,10 +22,10 @@ const server = http.createServer((req, res) => {
 });
 
 const wss = new WebSocket.Server({ server });
-const rooms = new Map(); // roomName -> Set of sockets
 
 wss.on('connection', (ws) => {
-  ws._id = generateId();
+  const id = Math.random().toString(36).substr(2, 9);
+  clients.set(ws, { id });
 
   ws.on('message', (msg) => {
     let data;
@@ -31,63 +35,59 @@ wss.on('connection', (ws) => {
       return;
     }
 
+    const client = clients.get(ws);
+
     if (data.type === 'join') {
       const room = data.room;
-      ws.room = room;
-
-      if (!rooms.has(room)) rooms.set(room, new Set());
-      const peers = Array.from(rooms.get(room)).filter(p => p !== ws);
-
-      ws.send(JSON.stringify({ type: 'joined', id: ws._id }));
-      ws.send(JSON.stringify({ type: 'peers', peers: peers.map(p => p._id) }));
-
+      client.room = room;
+      rooms.set(room, rooms.get(room) || new Set());
       rooms.get(room).add(ws);
-      peers.forEach(peer => {
-        peer.send(JSON.stringify({ type: 'peers', peers: [ws._id] }));
-      });
+
+      // Send confirmation and existing users
+      ws.send(JSON.stringify({ type: 'joined', id }));
+      broadcastUserList(room);
     }
 
     if (data.type === 'call-start') {
-      const clients = rooms.get(ws.room) || new Set();
-      for (const client of clients) {
-        if (client !== ws) {
-          client.send(JSON.stringify({ type: 'call-start' }));
-        }
-      }
+      broadcastToRoom(client.room, {
+        type: 'call-start',
+      }, ws);
     }
 
-    if (data.type === 'offer' || data.type === 'answer' || data.type === 'ice') {
-      const to = findClientById(data.to);
-      if (to) {
-        to.send(JSON.stringify({ ...data, from: ws._id }));
+    if (['offer', 'answer', 'ice'].includes(data.type)) {
+      const target = Array.from(rooms.get(client.room) || []).find(s => clients.get(s)?.id === data.to);
+      if (target) {
+        target.send(JSON.stringify({ ...data, from: client.id }));
       }
     }
   });
 
   ws.on('close', () => {
-    if (ws.room && rooms.has(ws.room)) {
-      rooms.get(ws.room).delete(ws);
-      if (rooms.get(ws.room).size === 0) {
-        rooms.delete(ws.room);
+    const client = clients.get(ws);
+    if (client?.room && rooms.has(client.room)) {
+      rooms.get(client.room).delete(ws);
+      if (rooms.get(client.room).size === 0) {
+        rooms.delete(client.room);
+      } else {
+        broadcastUserList(client.room);
       }
     }
+    clients.delete(ws);
   });
 });
 
-function generateId() {
-  return Math.random().toString(36).substring(2, 9);
+function broadcastToRoom(room, msg, excludeSocket = null) {
+  (rooms.get(room) || new Set()).forEach(client => {
+    if (client !== excludeSocket) {
+      client.send(JSON.stringify(msg));
+    }
+  });
 }
 
-function findClientById(id) {
-  for (const room of rooms.values()) {
-    for (const client of room) {
-      if (client._id === id) return client;
-    }
-  }
-  return null;
+function broadcastUserList(room) {
+  const users = Array.from(rooms.get(room) || []).map(s => clients.get(s)?.id);
+  broadcastToRoom(room, { type: 'user-list', users });
 }
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-});
+server.listen(PORT, () => console.log(`Server on http://localhost:${PORT}`));
