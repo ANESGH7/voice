@@ -1,45 +1,45 @@
-import { WebSocketServer } from "ws";
-
+// server.js
+import { WebSocketServer } from 'ws';
 const PORT = process.env.PORT || 10000;
 const wss = new WebSocketServer({ port: PORT });
-console.log("Server running on port", PORT);
 
 const rooms = {};
 
-wss.on("connection", (ws) => {
-  ws.on("message", (msg) => {
-    const data = JSON.parse(msg);
-    const { type, room } = data;
-
-    if (type === "join") {
-      ws.room = room;
-      rooms[room] = rooms[room] || [];
-      rooms[room].push(ws);
-
-      // Send 'joined' event and tell if user should initiate call
-      ws.send(JSON.stringify({ type: "joined", initiator: rooms[room].length === 2 }));
-
-      // If more than 2 in room, kick extra users
-      if (rooms[room].length > 2) {
-        ws.send(JSON.stringify({ type: "full" }));
-      }
+wss.on('connection', (ws) => {
+  ws.on('message', (data) => {
+    let msg;
+    try {
+      msg = JSON.parse(data);
+    } catch {
+      return;
     }
 
-    // Relay messages to the other peer in the room
-    if (["offer", "answer", "candidate"].includes(type)) {
-      const peers = rooms[room] || [];
-      for (let client of peers) {
+    const { type, room } = msg;
+
+    if (type === 'join') {
+      rooms[room] = rooms[room] || [];
+      rooms[room].push(ws);
+      ws.room = room;
+      ws.send(JSON.stringify({ type: 'joined', initiator: rooms[room].length === 1 }));
+    }
+
+    // Relay offer, answer, candidate
+    if (['offer', 'answer', 'candidate'].includes(type)) {
+      rooms[room]?.forEach(client => {
         if (client !== ws && client.readyState === 1) {
-          client.send(JSON.stringify(data));
+          client.send(JSON.stringify(msg));
         }
-      }
+      });
     }
   });
 
-  ws.on("close", () => {
+  ws.on('close', () => {
     const room = ws.room;
-    if (room && rooms[room]) {
-      rooms[room] = rooms[room].filter((client) => client !== ws);
+    if (room) {
+      rooms[room] = rooms[room].filter(client => client !== ws);
+      if (rooms[room].length === 0) delete rooms[room];
     }
   });
 });
+
+console.log(`Server running on port ${PORT}`);
