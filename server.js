@@ -9,6 +9,7 @@ let clients = [];
 
 wss.on("connection", (ws) => {
   clients.push(ws);
+  console.log("Client connected. Total:", clients.length);
 
   ws.on("message", (msg) => {
     for (const client of clients) {
@@ -20,5 +21,6 @@ wss.on("connection", (ws) => {
 
   ws.on("close", () => {
     clients = clients.filter(c => c !== ws);
+    console.log("Client disconnected. Total:", clients.length);
   });
 });
