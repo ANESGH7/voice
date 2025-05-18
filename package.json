@@ -1,13 +1,11 @@
 {
-  "name": "voice-relay-server",
+  "name": "voice-server",
   "version": "1.0.0",
   "type": "module",
-  "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
-    "ws": "^8.0.0"
+    "ws": "^8.13.0"
   }
 }
-
