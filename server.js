@@ -1,24 +1,25 @@
 // server.js
 import { WebSocketServer } from 'ws';
 
-const PORT = process.env.PORT || 10000;
-const wss = new WebSocketServer({ port: PORT });
+const wss = new WebSocketServer({ port: process.env.PORT || 10000 });
+const clients = new Set();
 
-console.log(`✅ Server running on port ${PORT}`);
+wss.on('connection', (ws) => {
+  clients.add(ws);
+  console.log('Client connected');
 
-wss.on('connection', (socket) => {
-  console.log('🔌 New client connected');
-
-  socket.on('message', (data) => {
-    // Broadcast to all other clients except the sender
-    for (const client of wss.clients) {
-      if (client !== socket && client.readyState === WebSocket.OPEN) {
-        client.send(data);
+  ws.on('message', (data, isBinary) => {
+    for (const client of clients) {
+      if (client !== ws && client.readyState === 1) {
+        client.send(data, { binary: isBinary });
       }
     }
   });
 
-  socket.on('close', () => {
-    console.log('❌ Client disconnected');
+  ws.on('close', () => {
+    clients.delete(ws);
+    console.log('Client disconnected');
   });
 });
+
+console.log('✅ Server running on port 10000');
