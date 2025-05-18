@@ -1,79 +1,59 @@
-const WebSocket = require('ws');
-const { v4: uuid } = require('uuid');
+import { WebSocketServer } from "ws";
+import { v4 as uuidv4 } from "uuid";
 
-const wss = new WebSocket.Server({ port: process.env.PORT || 3000 });
+const wss = new WebSocketServer({ port: 8080 });
+console.log("Server running on ws://localhost:8080");
 
-const rooms = new Map();
+let rooms = {}; // { roomId: Set of clients }
 
-wss.on('connection', ws => {
-  ws.id = uuid();
-  ws.room = null;
+wss.on("connection", (ws) => {
+  ws.id = uuidv4();
+  ws.roomId = null;
 
-  ws.on('message', msg => {
+  ws.on("message", (msg) => {
     let data;
-    try {
-      data = JSON.parse(msg);
-    } catch {
-      return;
+    try { data = JSON.parse(msg); } 
+    catch { return; }
+
+    if (data.type === "join") {
+      ws.roomId = data.roomId;
+      if (!rooms[ws.roomId]) rooms[ws.roomId] = new Set();
+      rooms[ws.roomId].add(ws);
+
+      // Inform new client about others in room
+      const others = [...rooms[ws.roomId]]
+        .filter(c => c !== ws)
+        .map(c => c.id);
+      ws.send(JSON.stringify({ type: "users", users: others }));
+
+      // Inform others about new user
+      rooms[ws.roomId].forEach(client => {
+        if (client !== ws)
+          client.send(JSON.stringify({ type: "new-user", id: ws.id }));
+      });
     }
-
-    if (data.type === 'join') {
-      ws.room = data.room;
-      if (!rooms.has(data.room)) rooms.set(data.room, new Set());
-      rooms.get(data.room).add(ws);
-
-      ws.send(JSON.stringify({ type: 'joined', id: ws.id }));
-      broadcastUserList(data.room);
-    }
-
-    if (data.type === 'call-start') {
-      broadcast(ws.room, {
-        type: 'call-start',
-        from: ws.id
-      }, ws);
-    }
-
-    if (data.type === 'offer' || data.type === 'answer' || data.type === 'ice') {
-      const target = findClientById(ws.room, data.to);
+    else if (data.type === "signal" && ws.roomId) {
+      // Relay signaling data to target peer
+      const target = [...rooms[ws.roomId]].find(c => c.id === data.target);
       if (target) {
         target.send(JSON.stringify({
-          type: data.type,
+          type: "signal",
           from: ws.id,
-          ...(data.offer && { offer: data.offer }),
-          ...(data.answer && { answer: data.answer }),
-          ...(data.candidate && { candidate: data.candidate }),
+          signal: data.signal
         }));
       }
     }
   });
 
-  ws.on('close', () => {
-    if (ws.room && rooms.has(ws.room)) {
-      rooms.get(ws.room).delete(ws);
-      if (rooms.get(ws.room).size === 0) rooms.delete(ws.room);
-      else broadcastUserList(ws.room);
-    }
-  });
-
-  function broadcastUserList(room) {
-    const users = [...(rooms.get(room) || [])].map(w => w.id);
-    broadcast(room, { type: 'user-list', users });
-  }
-
-  function broadcast(room, msg, exclude) {
-    for (const client of rooms.get(room) || []) {
-      if (client !== exclude && client.readyState === WebSocket.OPEN) {
-        client.send(JSON.stringify(msg));
+  ws.on("close", () => {
+    if (ws.roomId && rooms[ws.roomId]) {
+      rooms[ws.roomId].delete(ws);
+      rooms[ws.roomId].forEach(client => {
+        client.send(JSON.stringify({ type: "user-left", id: ws.id }));
+      });
+      if (rooms[ws.roomId].size === 0) {
+        delete rooms[ws.roomId];
       }
     }
-  }
-
-  function findClientById(room, id) {
-    for (const client of rooms.get(room) || []) {
-      if (client.id === id) return client;
-    }
-    return null;
-  }
+  });
 });
-
-console.log('WebSocket server running');
