@@ -12,6 +12,7 @@ wss.on("connection", (ws) => {
   console.log("Client connected. Total:", clients.length);
 
   ws.on("message", (msg) => {
+    // Send to all others
     for (const client of clients) {
       if (client !== ws && client.readyState === WebSocket.OPEN) {
         client.send(msg);
