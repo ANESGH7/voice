@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Voice Call App</title>
+</head>
+<body>
+  <h2>Join Voice Room</h2>
+  <input id="roomInput" placeholder="Enter Room Name" />
+  <button onclick="joinRoom()">Join</button>
+
+  <h3>Status: <span id="status">Not connected</span></h3>
+
+  <script>
+    const status = document.getElementById('status');
+    let ws, roomName;
+    const peers = {};
+    const peerConnections = {};
+    let localStream;
+
+    async function joinRoom() {
+      roomName = document.getElementById('roomInput').value.trim();
+      if (!roomName) return alert("Enter a room name");
+
+      status.textContent = "Connecting...";
+      ws = new WebSocket('wss://your-server-url-here'); // CHANGE THIS
+
+      ws.onopen = async () => {
+        status.textContent = "Connected. Joining room...";
+        ws.send(JSON.stringify({ type: 'join', room: roomName }));
+        await setupLocalAudio();
+      };
+
+      ws.onmessage = async (msg) => {
+        const data = JSON.parse(msg.data);
+
+        if (data.type === 'joined') {
+          status.textContent = "In room: " + roomName;
+        }
+
+        if (data.type === 'peers') {
+          for (const id of data.peers) {
+            createPeerConnection(id, true);
+          }
+        }
+
+        if (data.type === 'offer') {
+          createPeerConnection(data.from, false);
+          await peerConnections[data.from].setRemoteDescription(new RTCSessionDescription(data.offer));
+          const answer = await peerConnections[data.from].createAnswer();
+          await peerConnections[data.from].setLocalDescription(answer);
+          ws.send(JSON.stringify({ type: 'answer', to: data.from, answer }));
+        }
+
+        if (data.type === 'answer') {
+          await peerConnections[data.from].setRemoteDescription(new RTCSessionDescription(data.answer));
+        }
+
+        if (data.type === 'ice') {
+          if (peerConnections[data.from]) {
+            await peerConnections[data.from].addIceCandidate(new RTCIceCandidate(data.candidate));
+          }
+        }
+      };
+    }
+
+    async function setupLocalAudio() {
+      localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    }
+
+    function createPeerConnection(id, isInitiator) {
+      if (peerConnections[id]) return;
+
+      const pc = new RTCPeerConnection();
+      peerConnections[id] = pc;
+
+      localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+
+      pc.ontrack = (event) => {
+        const audio = document.createElement('audio');
+        audio.srcObject = event.streams[0];
+        audio.autoplay = true;
+        document.body.appendChild(audio);
+      };
+
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          ws.send(JSON.stringify({ type: 'ice', to: id, candidate: event.candidate }));
+        }
+      };
+
+      if (isInitiator) {
+        pc.onnegotiationneeded = async () => {
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          ws.send(JSON.stringify({ type: 'offer', to: id, offer }));
+        };
+      }
+    }
+  </script>
+</body>
+</html>
