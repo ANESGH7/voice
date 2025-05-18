@@ -1,45 +1,24 @@
 // server.js
-import { WebSocketServer } from 'ws';
+const WebSocket = require("ws");
 const PORT = process.env.PORT || 10000;
-const wss = new WebSocketServer({ port: PORT });
 
-const rooms = {};
+const wss = new WebSocket.Server({ port: PORT });
+console.log("Server running on port", PORT);
 
-wss.on('connection', (ws) => {
-  ws.on('message', (data) => {
-    let msg;
-    try {
-      msg = JSON.parse(data);
-    } catch {
-      return;
-    }
+let clients = [];
 
-    const { type, room } = msg;
+wss.on("connection", (ws) => {
+  clients.push(ws);
 
-    if (type === 'join') {
-      rooms[room] = rooms[room] || [];
-      rooms[room].push(ws);
-      ws.room = room;
-      ws.send(JSON.stringify({ type: 'joined', initiator: rooms[room].length === 1 }));
-    }
-
-    // Relay offer, answer, candidate
-    if (['offer', 'answer', 'candidate'].includes(type)) {
-      rooms[room]?.forEach(client => {
-        if (client !== ws && client.readyState === 1) {
-          client.send(JSON.stringify(msg));
-        }
-      });
+  ws.on("message", (msg) => {
+    for (const client of clients) {
+      if (client !== ws && client.readyState === WebSocket.OPEN) {
+        client.send(msg);
+      }
     }
   });
 
-  ws.on('close', () => {
-    const room = ws.room;
-    if (room) {
-      rooms[room] = rooms[room].filter(client => client !== ws);
-      if (rooms[room].length === 0) delete rooms[room];
-    }
+  ws.on("close", () => {
+    clients = clients.filter(c => c !== ws);
   });
 });
-
-console.log(`Server running on port ${PORT}`);
