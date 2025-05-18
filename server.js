@@ -1,50 +1,50 @@
 // server.js
+const http = require('http');
 const WebSocket = require('ws');
-const PORT = process.env.PORT || 3000;
+const fs = require('fs');
+const path = require('path');
 
-const wss = new WebSocket.Server({ port: PORT });
+const server = http.createServer((req, res) => {
+  let filePath = path.join(__dirname, 'public', req.url === '/' ? 'index.html' : req.url);
+  fs.readFile(filePath, (err, content) => {
+    if (err) {
+      res.writeHead(404);
+      res.end("Not Found");
+    } else {
+      res.writeHead(200);
+      res.end(content);
+    }
+  });
+});
+
+const wss = new WebSocket.Server({ server });
 const rooms = new Map(); // roomName -> Set of sockets
 
 wss.on('connection', (ws) => {
+  ws._id = generateId();
+
   ws.on('message', (msg) => {
     let data;
     try {
       data = JSON.parse(msg);
-    } catch (e) {
-      console.error("Invalid message:", msg);
+    } catch {
       return;
     }
 
     if (data.type === 'join') {
       const room = data.room;
       ws.room = room;
-      if (!rooms.has(room)) {
-        rooms.set(room, new Set());
-      }
 
+      if (!rooms.has(room)) rooms.set(room, new Set());
       const peers = Array.from(rooms.get(room)).filter(p => p !== ws);
-      ws.send(JSON.stringify({ type: 'joined', room }));
+
+      ws.send(JSON.stringify({ type: 'joined', id: ws._id }));
       ws.send(JSON.stringify({ type: 'peers', peers: peers.map(p => p._id) }));
 
-      ws._id = generateId(); // assign unique id
       rooms.get(room).add(ws);
-
-      for (const peer of peers) {
+      peers.forEach(peer => {
         peer.send(JSON.stringify({ type: 'peers', peers: [ws._id] }));
-      }
-    }
-
-    if (data.type === 'offer' || data.type === 'answer' || data.type === 'ice') {
-      const target = findClientById(data.to);
-      if (target) {
-        target.send(JSON.stringify({
-          type: data.type,
-          from: ws._id,
-          ...(data.offer && { offer: data.offer }),
-          ...(data.answer && { answer: data.answer }),
-          ...(data.candidate && { candidate: data.candidate }),
-        }));
-      }
+      });
     }
 
     if (data.type === 'call-start') {
@@ -53,6 +53,13 @@ wss.on('connection', (ws) => {
         if (client !== ws) {
           client.send(JSON.stringify({ type: 'call-start' }));
         }
+      }
+    }
+
+    if (data.type === 'offer' || data.type === 'answer' || data.type === 'ice') {
+      const to = findClientById(data.to);
+      if (to) {
+        to.send(JSON.stringify({ ...data, from: ws._id }));
       }
     }
   });
@@ -68,7 +75,7 @@ wss.on('connection', (ws) => {
 });
 
 function generateId() {
-  return Math.random().toString(36).substr(2, 9);
+  return Math.random().toString(36).substring(2, 9);
 }
 
 function findClientById(id) {
@@ -80,4 +87,7 @@ function findClientById(id) {
   return null;
 }
 
-console.log(`WebSocket signaling server running on port ${PORT}`);
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+  console.log(`Server running on http://localhost:${PORT}`);
+});
