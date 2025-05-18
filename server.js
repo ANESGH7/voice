@@ -5,7 +5,7 @@ const port = process.env.PORT || 8080;
 
 const server = http.createServer((req, res) => {
   res.writeHead(200);
-  res.end("Voice WebSocket Server is Running.");
+  res.end("Voice WebSocket Server is running.");
 });
 
 const wss = new WebSocketServer({ server });
@@ -13,12 +13,11 @@ const wss = new WebSocketServer({ server });
 wss.on('connection', (ws) => {
   ws.on('message', (message, isBinary) => {
     if (isBinary) {
-      // Broadcast to all clients
-      wss.clients.forEach(client => {
-        if (client !== ws && client.readyState === 1) {
+      for (const client of wss.clients) {
+        if (client.readyState === 1 && client !== ws) {
           client.send(message, { binary: true });
         }
-      });
+      }
     }
   });
 });
