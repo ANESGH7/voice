@@ -1,14 +1,25 @@
-// server.js
 import { WebSocketServer } from 'ws';
+import http from 'http';
 
-const wss = new WebSocketServer({ port: 8080 });
+const port = process.env.PORT || 8080;
+
+// Create a basic HTTP server for Render to recognize the service
+const server = http.createServer((req, res) => {
+  res.writeHead(200);
+  res.end("Voice WebSocket server is running.");
+});
+
+// Create WebSocket server bound to the same HTTP server
+const wss = new WebSocketServer({ server });
 
 wss.on('connection', (ws) => {
   ws.on('message', (data, isBinary) => {
     if (isBinary) {
-      ws.send(data, { binary: true }); // Echo binary audio
+      ws.send(data, { binary: true }); // Echo voice data
     }
   });
 });
 
-console.log('✅ WebSocket server running on ws://localhost:8080');
+server.listen(port, () => {
+  console.log(`✅ WebSocket server running on port ${port}`);
+});
