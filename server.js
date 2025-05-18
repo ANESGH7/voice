@@ -12,7 +12,7 @@ wss.on("connection", (ws) => {
   console.log("Client connected. Total:", clients.length);
 
   ws.on("message", (msg) => {
-    // Send to all others
+    // Broadcast to other clients
     for (const client of clients) {
       if (client !== ws && client.readyState === WebSocket.OPEN) {
         client.send(msg);
@@ -23,5 +23,9 @@ wss.on("connection", (ws) => {
   ws.on("close", () => {
     clients = clients.filter(c => c !== ws);
     console.log("Client disconnected. Total:", clients.length);
+  });
+
+  ws.on("error", (err) => {
+    console.error("WebSocket error:", err.message);
   });
 });
