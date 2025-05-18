@@ -18,6 +18,16 @@ wss.on('connection', (ws) => {
           client.send(message, { binary: true });
         }
       });
+    } else {
+      // Notify other clients of stream status
+      const text = message.toString();
+      if (text === 'start_streaming') {
+        wss.clients.forEach(client => {
+          if (client !== ws && client.readyState === 1) {
+            client.send('start_streaming');
+          }
+        });
+      }
     }
   });
 });
