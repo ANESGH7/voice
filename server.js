@@ -4,7 +4,7 @@ import { WebSocketServer } from 'ws';
 
 const server = http.createServer((req, res) => {
   res.writeHead(200);
-  res.end('WebRTC signaling server is running');
+  res.end('WebRTC Voice Server');
 });
 
 const wss = new WebSocketServer({ server });
@@ -14,9 +14,9 @@ wss.on('connection', ws => {
   ws.room = null;
   ws.username = null;
 
-  ws.on('message', message => {
+  ws.on('message', msg => {
     let data;
-    try { data = JSON.parse(message); } catch { return; }
+    try { data = JSON.parse(msg); } catch { return; }
 
     const { type, room, username, to } = data;
 
@@ -26,10 +26,10 @@ wss.on('connection', ws => {
       if (!rooms.has(room)) rooms.set(room, new Map());
       rooms.get(room).set(username, ws);
 
-      for (const [otherUsername, client] of rooms.get(room)) {
+      for (const [u, client] of rooms.get(room)) {
         if (client !== ws) {
           client.send(JSON.stringify({ type: 'user_joined', username }));
-          ws.send(JSON.stringify({ type: 'user_joined', username: otherUsername }));
+          ws.send(JSON.stringify({ type: 'user_joined', username: u }));
         }
       }
     }
@@ -43,18 +43,17 @@ wss.on('connection', ws => {
   });
 
   ws.on('close', () => {
-    if (ws.room && ws.username && rooms.has(ws.room)) {
-      rooms.get(ws.room).delete(ws.username);
-      for (const client of rooms.get(ws.room).values()) {
-        client.send(JSON.stringify({ type: 'user_left', username: ws.username }));
+    const { room, username } = ws;
+    if (room && rooms.has(room)) {
+      rooms.get(room).delete(username);
+      for (const client of rooms.get(room).values()) {
+        client.send(JSON.stringify({ type: 'user_left', username }));
       }
-      if (rooms.get(ws.room).size === 0) {
-        rooms.delete(ws.room);
-      }
+      if (rooms.get(room).size === 0) rooms.delete(room);
     }
   });
 });
 
-server.listen(process.env.PORT || 8080, () =>
-  console.log('WebRTC signaling server running on port 8080')
-);
+server.listen(8080, () => {
+  console.log("WebSocket voice server running at http://localhost:8080");
+});
