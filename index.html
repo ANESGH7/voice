@@ -1,102 +1,215 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Voice Call App</title>
+  <meta charset="UTF-8" />
+  <title>WebSocket Chat with Live Video</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+    }
+    #messageLog {
+      border: 1px solid #ccc;
+      padding: 10px;
+      height: 200px;
+      overflow-y: auto;
+      margin-bottom: 20px;
+    }
+    canvas {
+      max-width: 100%;
+      border: 1px solid #ccc;
+    }
+    .section {
+      margin-bottom: 20px;
+    }
+  </style>
 </head>
 <body>
-  <h2>Join Voice Room</h2>
-  <input id="roomInput" placeholder="Enter Room Name" />
-  <button onclick="joinRoom()">Join</button>
+  <h2>📡 WebSocket Chat App</h2>
 
-  <h3>Status: <span id="status">Not connected</span></h3>
+  <div class="section">
+    <input type="text" id="roomName" placeholder="Room name" />
+    <button onclick="createRoom()">Create</button>
+    <button onclick="joinRoom()">Join</button>
+  </div>
+
+  <div class="section">
+    <input type="text" id="textMessage" placeholder="Enter message" />
+    <button onclick="sendMessage()">Send Message</button>
+  </div>
+
+  <div class="section">
+    <label for="videoQualitySelect"><strong>Video Quality:</strong></label>
+    <select id="videoQualitySelect">
+      <option value="veryLow120p">Very Low (120p)</option>
+      <option value="veryLow144p">Very Low (144p)</option>
+      <option value="low240p">Low (240p)</option>
+      <option value="low360p">Medium-Low (360p)</option>
+      <option value="low480p">Low (480p)</option>
+      <option value="medium" selected>Medium (720p)</option>
+      <option value="high">High (1080p)</option>
+    </select>
+    <br />
+    <label for="fpsSlider">FPS: </label>
+    <input type="range" id="fpsSlider" min="5" max="60" value="30" step="1">
+    <span id="fpsValue">30</span> FPS
+    <br />
+    <button id="videoButton" onclick="toggleLiveVideo()">📷 Start Live Video</button>
+  </div>
+
+  <div class="section">
+    <h3>💬 Messages</h3>
+    <div id="messageLog"></div>
+  </div>
+
+  <div class="section">
+    <h3>🎥 Received Live Video</h3>
+    <canvas id="videoCanvas" width="320" height="240"></canvas>
+  </div>
 
   <script>
-    const status = document.getElementById('status');
-    let ws, roomName;
-    const peers = {};
-    const peerConnections = {};
-    let localStream;
+    const ws = new WebSocket("wss://chat-643f.onrender.com");
+    ws.binaryType = "arraybuffer";
+    let currentRoom = "";
+    let sendingVideo = false;
+    let videoInterval = null;
+    let activeStream = null;
 
-    async function joinRoom() {
-      roomName = document.getElementById('roomInput').value.trim();
-      if (!roomName) return alert("Enter a room name");
+    ws.onopen = () => {
+      logMessage("✅ Connected to WebSocket server");
+    };
 
-      status.textContent = "Connecting...";
-      ws = new WebSocket('wss://your-server-url-here'); // CHANGE THIS
-
-      ws.onopen = async () => {
-        status.textContent = "Connected. Joining room...";
-        ws.send(JSON.stringify({ type: 'join', room: roomName }));
-        await setupLocalAudio();
-      };
-
-      ws.onmessage = async (msg) => {
-        const data = JSON.parse(msg.data);
-
-        if (data.type === 'joined') {
-          status.textContent = "In room: " + roomName;
-        }
-
-        if (data.type === 'peers') {
-          for (const id of data.peers) {
-            createPeerConnection(id, true);
+    ws.onmessage = (event) => {
+      if (typeof event.data === "string") {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === "message") {
+            logMessage("💬 " + msg.text);
+          } else if (msg.type === "error") {
+            logMessage("❌ " + msg.message);
           }
+        } catch (e) {
+          logMessage("❗ Invalid message: " + event.data);
         }
-
-        if (data.type === 'offer') {
-          createPeerConnection(data.from, false);
-          await peerConnections[data.from].setRemoteDescription(new RTCSessionDescription(data.offer));
-          const answer = await peerConnections[data.from].createAnswer();
-          await peerConnections[data.from].setLocalDescription(answer);
-          ws.send(JSON.stringify({ type: 'answer', to: data.from, answer }));
-        }
-
-        if (data.type === 'answer') {
-          await peerConnections[data.from].setRemoteDescription(new RTCSessionDescription(data.answer));
-        }
-
-        if (data.type === 'ice') {
-          if (peerConnections[data.from]) {
-            await peerConnections[data.from].addIceCandidate(new RTCIceCandidate(data.candidate));
-          }
-        }
-      };
-    }
-
-    async function setupLocalAudio() {
-      localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-    }
-
-    function createPeerConnection(id, isInitiator) {
-      if (peerConnections[id]) return;
-
-      const pc = new RTCPeerConnection();
-      peerConnections[id] = pc;
-
-      localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
-
-      pc.ontrack = (event) => {
-        const audio = document.createElement('audio');
-        audio.srcObject = event.streams[0];
-        audio.autoplay = true;
-        document.body.appendChild(audio);
-      };
-
-      pc.onicecandidate = (event) => {
-        if (event.candidate) {
-          ws.send(JSON.stringify({ type: 'ice', to: id, candidate: event.candidate }));
-        }
-      };
-
-      if (isInitiator) {
-        pc.onnegotiationneeded = async () => {
-          const offer = await pc.createOffer();
-          await pc.setLocalDescription(offer);
-          ws.send(JSON.stringify({ type: 'offer', to: id, offer }));
+      } else {
+        const blob = new Blob([event.data], { type: "image/jpeg" });
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.getElementById("videoCanvas");
+          const ctx = canvas.getContext("2d");
+          canvas.width = img.width;
+          canvas.height = img.height;
+          ctx.drawImage(img, 0, 0);
         };
+        img.src = URL.createObjectURL(blob);
+      }
+    };
+
+    function createRoom() {
+      const roomName = document.getElementById("roomName").value.trim();
+      if (!roomName) return;
+      currentRoom = roomName;
+      ws.send(JSON.stringify({ type: "create", roomName }));
+      logMessage("📂 Created room: " + roomName);
+    }
+
+    function joinRoom() {
+      const roomName = document.getElementById("roomName").value.trim();
+      if (!roomName) return;
+      currentRoom = roomName;
+      ws.send(JSON.stringify({ type: "join", roomName }));
+      logMessage("📥 Joined room: " + roomName);
+    }
+
+    function sendMessage() {
+      const text = document.getElementById("textMessage").value.trim();
+      if (!text || !currentRoom) return;
+      ws.send(JSON.stringify({ type: "message", roomName: currentRoom, text }));
+      document.getElementById("textMessage").value = "";
+    }
+
+    async function toggleLiveVideo() {
+      const button = document.getElementById("videoButton");
+
+      if (sendingVideo) {
+        clearInterval(videoInterval);
+        sendingVideo = false;
+        button.textContent = "📷 Start Live Video";
+
+        if (activeStream) {
+          activeStream.getTracks().forEach(track => track.stop());
+        }
+        return;
+      }
+
+      const constraints = getVideoConstraints();
+      const fps = parseInt(document.getElementById("fpsSlider").value);
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        activeStream = stream;
+
+        const video = document.createElement("video");
+        video.srcObject = stream;
+        await video.play();
+
+        const canvas = document.createElement("canvas");
+        const ctx = canvas.getContext("2d");
+
+        sendingVideo = true;
+        button.textContent = "🛑 Stop Live Video";
+
+        videoInterval = setInterval(() => {
+          if (!currentRoom || video.videoWidth === 0 || video.videoHeight === 0) return;
+
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+          canvas.toBlob(blob => {
+            if (!blob) return;
+            ws.send(JSON.stringify({ type: "binary-image", roomName: currentRoom }));
+            setTimeout(() => {
+              blob.arrayBuffer().then(buffer => ws.send(buffer));
+            }, 20);
+          }, "image/jpeg", 0.6);
+        }, 1000 / fps); // Control FPS dynamically
+      } catch (err) {
+        logMessage("🚫 Camera error: " + err.message);
       }
     }
+
+    function getVideoConstraints() {
+      const selected = document.getElementById("videoQualitySelect").value;
+      switch (selected) {
+        case "veryLow120p":
+          return { video: { width: { ideal: 160 }, height: { ideal: 120 }, frameRate: 10 } };
+        case "veryLow144p":
+          return { video: { width: { ideal: 256 }, height: { ideal: 144 }, frameRate: 10 } };
+        case "low240p":
+          return { video: { width: { ideal: 426 }, height: { ideal: 240 }, frameRate: 15 } };
+        case "low360p":
+          return { video: { width: { ideal: 640 }, height: { ideal: 360 }, frameRate: 15 } };
+        case "low480p":
+          return { video: { width: { ideal: 854 }, height: { ideal: 480 }, frameRate: 20 } };
+        case "medium":
+        default:
+          return { video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: 30 } };
+        case "high":
+          return { video: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: 30 } };
+      }
+    }
+
+    function logMessage(text) {
+      const div = document.createElement("div");
+      div.textContent = text;
+      document.getElementById("messageLog").appendChild(div);
+    }
+
+    // Update FPS value display
+    document.getElementById("fpsSlider").addEventListener("input", (e) => {
+      document.getElementById("fpsValue").textContent = e.target.value;
+    });
   </script>
 </body>
 </html>
