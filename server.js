@@ -1,32 +1,40 @@
-const WebSocket = require("ws");
 const http = require("http");
+const WebSocket = require("ws");
 
-// Basic HTTP server to keep Render happy
-const server = http.createServer((req, res) => {
-  res.end("WebRTC Signaling Server is running");
-});
-
+const server = http.createServer();
 const wss = new WebSocket.Server({ server });
 
-let clients = [];
+const clients = new Map();
 
-wss.on("connection", ws => {
-  clients.push(ws);
+wss.on("connection", (ws) => {
+  const id = Math.random().toString(36).substring(2);
+  clients.set(id, ws);
 
-  ws.on("message", msg => {
-    clients.forEach(client => {
-      if (client !== ws && client.readyState === WebSocket.OPEN) {
-        client.send(msg);
+  ws.on("message", (data) => {
+    let msg;
+    try {
+      msg = JSON.parse(data);
+    } catch (e) {
+      console.error("Invalid JSON:", data);
+      return;
+    }
+
+    msg.sender = id; // attach sender ID
+
+    // Broadcast to all other clients
+    for (const [otherId, client] of clients.entries()) {
+      if (client.readyState === WebSocket.OPEN && otherId !== id) {
+        client.send(JSON.stringify(msg));
       }
-    });
+    }
   });
 
   ws.on("close", () => {
-    clients = clients.filter(c => c !== ws);
+    clients.delete(id);
   });
 });
 
-const PORT = process.env.PORT || 10000;
+const PORT = process.env.PORT || 8080;
 server.listen(PORT, () => {
-  console.log(`Signaling server running on port ${PORT}`);
+  console.log("WebSocket signaling server running on port", PORT);
 });
