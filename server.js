@@ -15,13 +15,12 @@ wss.on("connection", (ws) => {
     try {
       msg = JSON.parse(data);
     } catch (e) {
-      console.error("Invalid JSON:", data);
+      console.error("Invalid message:", data);
       return;
     }
 
-    msg.sender = id; // attach sender ID
+    msg.sender = id;
 
-    // Broadcast to all other clients
     for (const [otherId, client] of clients.entries()) {
       if (client.readyState === WebSocket.OPEN && otherId !== id) {
         client.send(JSON.stringify(msg));
@@ -36,5 +35,5 @@ wss.on("connection", (ws) => {
 
 const PORT = process.env.PORT || 8080;
 server.listen(PORT, () => {
-  console.log("WebSocket signaling server running on port", PORT);
+  console.log("WebSocket server running on port " + PORT);
 });
