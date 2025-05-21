@@ -1,36 +1,25 @@
-const WebSocket = require('ws');
-const wss = new WebSocket.Server({ port: 8080 });
+// Save as server.js
 
-let clientId = 0;
-const clients = new Map();
+import { WebSocketServer } from 'ws';
+
+const wss = new WebSocketServer({ port: 8080 });
+
+console.log('WebSocket server running on ws://localhost:8080');
 
 wss.on('connection', (ws) => {
-  const id = (++clientId).toString();
-  clients.set(id, ws);
-
-  // Send client their ID
-  ws.send(JSON.stringify({ type: 'id-assignment', id }));
-
-  console.log(`Client connected with ID ${id}`);
+  console.log('Client connected');
 
   ws.on('message', (message) => {
-    let data;
-    try {
-      data = JSON.parse(message);
-    } catch {
-      return;
-    }
-
-    // Relay messages only to the intended recipient
-    if (data.to && clients.has(data.to)) {
-      const target = clients.get(data.to);
-      data.from = id;  // attach sender id
-      target.send(JSON.stringify(data));
-    }
+    // Broadcast message to all other clients (including sender if you want)
+    wss.clients.forEach(client => {
+      if (client.readyState === client.OPEN) {
+        // Here message is Buffer (binary) or string (text)
+        client.send(message);
+      }
+    });
   });
 
   ws.on('close', () => {
-    clients.delete(id);
-    console.log(`Client disconnected: ${id}`);
+    console.log('Client disconnected');
   });
 });
