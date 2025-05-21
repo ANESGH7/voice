@@ -1,54 +1,30 @@
-const http = require("http");
 const WebSocket = require("ws");
+const wss = new WebSocket.Server({ port: process.env.PORT || 8080 });
 
-const server = http.createServer();
-const wss = new WebSocket.Server({ server });
-
+let clientCount = 0;
 const clients = new Map();
 
-wss.on("connection", (ws) => {
-  const id = Math.random().toString(36).substring(2);
-  clients.set(id, ws);
+wss.on("connection", ws => {
+  const clientId = ++clientCount;
+  clients.set(clientId, ws);
+  ws.send(JSON.stringify({ type: "system", message: "Welcome!", clientId }));
 
-  // Notify this client it connected
-  ws.send(JSON.stringify({ type: "system", message: "Connected to server", clientId: id }));
-
-  // Notify all others that someone joined
-  for (const [otherId, client] of clients.entries()) {
-    if (client !== ws && client.readyState === WebSocket.OPEN) {
-      client.send(JSON.stringify({ type: "system", message: "A new peer joined", peerId: id }));
-    }
-  }
-
-  ws.on("message", (data) => {
-    let msg;
+  ws.on("message", message => {
+    let data;
     try {
-      msg = JSON.parse(data);
+      data = JSON.parse(message);
     } catch (e) {
-      console.error("Invalid message:", data);
       return;
     }
 
-    msg.sender = id;
-
-    for (const [otherId, client] of clients.entries()) {
-      if (client.readyState === WebSocket.OPEN && otherId !== id) {
-        client.send(JSON.stringify(msg));
+    [...clients.entries()].forEach(([id, client]) => {
+      if (client.readyState === WebSocket.OPEN && id !== clientId) {
+        client.send(JSON.stringify(data));
       }
-    }
+    });
   });
 
-  ws.on("close", () => {
-    clients.delete(id);
-    for (const client of clients.values()) {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(JSON.stringify({ type: "system", message: "A peer disconnected", peerId: id }));
-      }
-    }
-  });
+  ws.on("close", () => clients.delete(clientId));
 });
 
-const PORT = process.env.PORT || 8080;
-server.listen(PORT, () => {
-  console.log(`WebSocket signaling server running on port ${PORT}`);
-});
+console.log("WebSocket signaling server running on port 8080");
