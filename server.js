@@ -1,25 +1,36 @@
 const WebSocket = require('ws');
-
 const wss = new WebSocket.Server({ port: 8080 });
-let peers = [];
+
+let clientId = 0;
+const clients = new Map();
 
 wss.on('connection', (ws) => {
-  peers.push(ws);
-  console.log('Client connected, total peers:', peers.length);
+  const id = (++clientId).toString();
+  clients.set(id, ws);
+
+  // Send client their ID
+  ws.send(JSON.stringify({ type: 'id-assignment', id }));
+
+  console.log(`Client connected with ID ${id}`);
 
   ws.on('message', (message) => {
-    // Broadcast to all other peers
-    peers.forEach(p => {
-      if (p !== ws && p.readyState === WebSocket.OPEN) {
-        p.send(message);
-      }
-    });
+    let data;
+    try {
+      data = JSON.parse(message);
+    } catch {
+      return;
+    }
+
+    // Relay messages only to the intended recipient
+    if (data.to && clients.has(data.to)) {
+      const target = clients.get(data.to);
+      data.from = id;  // attach sender id
+      target.send(JSON.stringify(data));
+    }
   });
 
   ws.on('close', () => {
-    peers = peers.filter(p => p !== ws);
-    console.log('Client disconnected, total peers:', peers.length);
+    clients.delete(id);
+    console.log(`Client disconnected: ${id}`);
   });
 });
-
-console.log('Signaling server running on ws://localhost:8080');
