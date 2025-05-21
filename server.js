@@ -1,37 +1,25 @@
 const WebSocket = require('ws');
-const wss = new WebSocket.Server({ port: 3000 });
 
-const clients = new Set();
+const wss = new WebSocket.Server({ port: 8080 });
+let peers = [];
 
-function broadcastExceptSender(sender, message) {
-  for (let client of clients) {
-    if (client !== sender && client.readyState === WebSocket.OPEN) {
-      client.send(message);
-    }
-  }
-}
+wss.on('connection', (ws) => {
+  peers.push(ws);
+  console.log('Client connected, total peers:', peers.length);
 
-wss.on('connection', ws => {
-  clients.add(ws);
-
-  // Notify others
-  broadcastExceptSender(ws, JSON.stringify({ type: 'peer-joined' }));
-
-  ws.on('message', message => {
-    let data;
-    try {
-      data = JSON.parse(message);
-    } catch (e) {
-      console.log("Invalid JSON:", message);
-      return;
-    }
-
-    // Broadcast WebRTC signaling or chat messages
-    broadcastExceptSender(ws, JSON.stringify(data));
+  ws.on('message', (message) => {
+    // Broadcast to all other peers
+    peers.forEach(p => {
+      if (p !== ws && p.readyState === WebSocket.OPEN) {
+        p.send(message);
+      }
+    });
   });
 
   ws.on('close', () => {
-    clients.delete(ws);
-    broadcastExceptSender(ws, JSON.stringify({ type: 'peer-left' }));
+    peers = peers.filter(p => p !== ws);
+    console.log('Client disconnected, total peers:', peers.length);
   });
 });
+
+console.log('Signaling server running on ws://localhost:8080');
