@@ -10,6 +10,16 @@ wss.on("connection", (ws) => {
   const id = Math.random().toString(36).substring(2);
   clients.set(id, ws);
 
+  // Notify this client it connected
+  ws.send(JSON.stringify({ type: "system", message: "Connected to server", clientId: id }));
+
+  // Notify all others that someone joined
+  for (const [otherId, client] of clients.entries()) {
+    if (client !== ws && client.readyState === WebSocket.OPEN) {
+      client.send(JSON.stringify({ type: "system", message: "A new peer joined", peerId: id }));
+    }
+  }
+
   ws.on("message", (data) => {
     let msg;
     try {
@@ -30,10 +40,15 @@ wss.on("connection", (ws) => {
 
   ws.on("close", () => {
     clients.delete(id);
+    for (const client of clients.values()) {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(JSON.stringify({ type: "system", message: "A peer disconnected", peerId: id }));
+      }
+    }
   });
 });
 
 const PORT = process.env.PORT || 8080;
 server.listen(PORT, () => {
-  console.log("WebSocket server running on port " + PORT);
+  console.log(`WebSocket signaling server running on port ${PORT}`);
 });
